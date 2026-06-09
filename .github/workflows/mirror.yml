@@ -1,0 +1,67 @@
+name: Mirror CME grain delivery reports
+
+# Fetches CME's public grain delivery reports from a GitHub-hosted (datacenter) IP and
+# commits them raw into data/. The Pi is Akamai-403'd on cmegroup.com from its residential
+# IP; raw.githubusercontent.com is NOT blocked, so the Pi reads the mirrored files instead.
+#
+# FIRST RUN IS THE BLOCK-TEST: if the job goes RED with an "::error:: ... BLOCKED" annotation,
+# Akamai also blocks GitHub's datacenter range -> fall back to a laptop/residential runner.
+# If it goes GREEN and commits real .xls/.xlsx files, the workaround works.
+
+on:
+  schedule:
+    - cron: '30 19 * * 1-5'   # 19:30 UTC Mon-Fri (after the Tue noon-CT weekly + daily files)
+  workflow_dispatch: {}        # manual "Run workflow" button — use this for the first block-test
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch CME files (probe + download)
+        run: |
+          set -uo pipefail
+          mkdir -p data
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+          # name -> URL
+          declare -A URLS=(
+            ["dcur.xls"]="https://www.cmegroup.com/delivery_reports/deliverable-commodities-under-registration.xls"
+            ["stocks-of-grain.xlsx"]="https://www.cmegroup.com/delivery_reports/stocks-of-grain-updated-tuesday.xlsx"
+          )
+          fail=0
+          for name in "${!URLS[@]}"; do
+            url="${URLS[$name]}"
+            tmp="$(mktemp)"
+            code="$(curl -sSL --max-time 60 -A "$UA" \
+                     -H 'Accept: application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*' \
+                     -o "$tmp" -w '%{http_code}' "$url" || echo 000)"
+            ftype="$(file -b "$tmp" 2>/dev/null || echo unknown)"
+            size="$(stat -c%s "$tmp" 2>/dev/null || echo 0)"
+            echo "::notice::$name -> HTTP $code, ${size} bytes, type: $ftype"
+            if [ "$code" = "200" ] && [ "$size" -gt 1000 ] && ! echo "$ftype" | grep -qiE 'html|ascii|empty'; then
+              mv "$tmp" "data/$name"
+            else
+              echo "::error::$name BLOCKED or invalid (HTTP $code, ${size}B, type: $ftype) — Akamai likely blocks the GitHub runner IP"
+              rm -f "$tmp"
+              fail=1
+            fi
+          done
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > data/_fetched_at_utc.txt
+          exit $fail
+
+      - name: Commit mirrored files if changed
+        if: success()
+        run: |
+          git config user.name 'cme-mirror-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add data
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+          else
+            git commit -m "mirror CME delivery reports $(date -u +%F)"
+            git push
+          fi
