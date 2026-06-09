@@ -8,10 +8,13 @@ name: Mirror CME grain delivery reports
 # Akamai also blocks GitHub's datacenter range -> fall back to a laptop/residential runner.
 # If it goes GREEN and commits real .xls/.xlsx files, the workaround works.
 
+# BLOCK-TEST RESULT 2026-06-09: GitHub's runner IP is Akamai-403'd too (both files returned
+# HTTP 403 / 602-byte JSON bot-block page, not spreadsheets). The GitHub Actions path does NOT
+# work for CME. Daily schedule DISABLED so it doesn't spam failures; manual dispatch kept so the
+# test can be re-run later (CME could change WAF policy). Fallback: run the same curl from a
+# residential IP (laptop) or a residential proxy — see README.
 on:
-  schedule:
-    - cron: '30 19 * * 1-5'   # 19:30 UTC Mon-Fri (after the Tue noon-CT weekly + daily files)
-  workflow_dispatch: {}        # manual "Run workflow" button — use this for the first block-test
+  workflow_dispatch: {}        # manual only — schedule disabled (Akamai blocks GH runners)
 
 permissions:
   contents: write

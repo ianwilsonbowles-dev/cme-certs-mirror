@@ -26,17 +26,21 @@ gh repo create cme-certs-mirror --public --source=. --push     # or create on gi
 The repo must be **public** so `raw.githubusercontent.com` serves the files without auth (the
 mirrored data is itself public CME data — no secrets here).
 
-## The block-test (do this first)
+## Block-test result (2026-06-09): GitHub runners are BLOCKED ❌
 
-Actions → **Mirror CME grain delivery reports** → **Run workflow**.
+The first dispatch returned **HTTP 403 / 602-byte JSON bot-block page** for both files —
+Akamai blocks GitHub's datacenter IPs the same way it blocks the Pi. **The GitHub Actions path
+does not work.** The daily schedule is disabled (manual dispatch kept to re-test if CME ever
+changes policy).
 
-- **Green run that commits `data/dcur.xls`** → Akamai does *not* block GitHub runners; the
-  workaround works. Note your raw base URL:
-  `https://raw.githubusercontent.com/<you>/cme-certs-mirror/main/data`
-  and drop it in `~/.claude/secrets/cme_mirror_url` on the Pi.
-- **Red run with a `BLOCKED` error annotation** → Akamai blocks GitHub's datacenter range too;
-  fall back to running the same fetch from a laptop/residential IP (the curl commands in
-  `.github/workflows/mirror.yml` are runner-agnostic).
+### Fallback: residential runner
+The `curl` commands in `.github/workflows/mirror.yml` are runner-agnostic. To make this work,
+run them from a **residential IP** (a laptop on a home/office network, or a residential proxy),
+then `git push` the `data/` files to this repo — the Pi reads them via raw.githubusercontent
+exactly as designed. First confirm your residential IP isn't blocked too: open
+`https://www.cmegroup.com/delivery_reports/deliverable-commodities-under-registration.xls`
+in a browser — if it downloads a real `.xls`, the laptop path will work; if it 403s, your whole
+network IP is flagged and you'll need a residential proxy or a different network.
 
 ## How the Pi consumes it
 
